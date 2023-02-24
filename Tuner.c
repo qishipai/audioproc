@@ -221,7 +221,7 @@ void tunrInit(STFT_Tuner *e,
 
     for (int i = 0; i < size; ++i)
         e->win_fn[i] = 1.0 - cosf(
-                 M_PI * 2 * i / size);
+           M_PI * 2 * i / (size - 1));
 
     e->step = stepL, e->sampr = sampR;
     e->arr = (void *)m, e->pfft = fft;
