@@ -188,20 +188,20 @@ static fp32t phase_mod(fp32t ph)
         return ph - M_PI * (np - (np & 1));
 }
 
-static void aufifo_roL(fp32t *aufifo,
-           fp32t *audio, int fL, int N)
+static void au_fifo_roL(fp32t *aufifo,
+      fp32t *audio_samp, int fL, int N)
 {
-    fp32t *fifo_rd = aufifo + N;
+    fp32t *fifo_prv_sp = aufifo + N;
 
     for (int i = N; i < fL; ++i)
-        *aufifo++ = *fifo_rd++; 
+        *aufifo++ = *fifo_prv_sp++; 
 
-    if (!audio)
-        while (aufifo != fifo_rd)
-            *aufifo++ = 0;
+    if (!audio_samp)
+        while (aufifo != fifo_prv_sp)
+            *aufifo++ = 0.0;
     else
-        while (aufifo != fifo_rd)
-            *aufifo++ = *audio++;
+        while (aufifo != fifo_prv_sp)
+            *aufifo++ = *audio_samp++;
 }
 
 void tunrInit(STFT_Tuner *e,
@@ -258,7 +258,7 @@ char tunrExec(STFT_Tuner *e, fp32t *audio,
     fp32t *wr_buf = e->wr_buf;
     fp32t *win_fn = e->win_fn;
 
-    aufifo_roL(e->rd_buf, audio,
+    au_fifo_roL(e->rd_buf, audio,
                          fftsize, e->step);
 
     if (!audio)
@@ -329,7 +329,7 @@ char tunrExec(STFT_Tuner *e, fp32t *audio,
 
     fftExec(e->pfft, arr, 1);
 
-    aufifo_roL(e->wr_buf, NULL,
+    au_fifo_roL(e->wr_buf, NULL,
                          fftsize, e->step);
 
     for (int i = 0; i < fftsize; ++i)
@@ -418,19 +418,19 @@ char tunr2Exec(STFT_Tuner2 *e, fp32t (*S)[2],
 
 static fp32t tfn(STFT_Tuner *o, void *td)
 {
-    return 432.0/440.0;
+    return *(fp32t*)td;
 }
 
 
 
-#define FFT_LEN 2048
-#define FFT_STP 256
+#define FFT_LEN 1024
+#define FFT_STP 128
 
 
 int main()
 {
-    FILE *au_rd = popen("ffmpeg -v error -i in.aac -ac 2 -ar 96000 -f f32le -", "rb");
-    FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 96000 -i - out1.flac", "wb");
+    FILE *au_rd = popen("ffmpeg -v error -i OaO.flac -ac 2 -ar 48000 -f f32le -", "rb");
+    FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 48000 -i - out.flac", "wb");
 
     FastDFT FFT;
     STFT_Tuner2 Tuner;
@@ -441,6 +441,8 @@ int main()
     static fp32t aud[FFT_STP][2];
     char run = 1;
 
+    fp32t tr = powf(2, 2.0 / 12);
+
     while (run)
     {
         fp32t (*sp)[2] = NULL;
@@ -449,7 +451,7 @@ int main()
         if (fread(aud, 8*FFT_STP, 1, au_rd) == 1)
             run |= 1, sp = aud;
 
-        if (tunr2Exec(&Tuner, sp, tfn, aud, NULL))
+        if (tunr2Exec(&Tuner, sp, tfn, aud, &tr))
         {
             for (int i = 0; i < FFT_STP; ++i)
                 aud[i][0] *= 0.9, aud[i][1] *= 0.9;
