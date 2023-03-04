@@ -4,7 +4,7 @@
 
 
 #ifndef M_PI
-#define M_PI 3.14159265358979323846264338328
+#define M_PI 3.14159265358979323846264338328L
 #endif
 
 typedef float fp32t;
@@ -146,17 +146,127 @@ void fftExec(FastDFT *e, fComplex *arr, char m)
 
 
 
+/* ========== [ STFT 变换 ] ========== */
+
+typedef void (*trans_func_t)(
+  fComplex *arr, int fsize, void *usr);
+
+typedef struct {
+  int w_step;     /* 单次步进点数 */
+  int pbw, pbo;   /* 环形队列指针 */
+  fp32t au_amp;   /* 幅度补偿系数 */
+  FastDFT *pfft;
+  fComplex *arr;  /* 复数点存储区 */
+  fp32t *wn_buf;  /* 滑动窗口队列 */
+  fp32t *ol_buf;  /* 重叠窗口队列 */
+  fp32t *win_fn;  /* 窗函数值列表 */
+} STFT_Trans;
+
+
+void stftInit(STFT_Trans *e,
+              FastDFT *fft, int w_step)
+{
+    int size = fft->fftLen;
+    e->pbw = 0, e->pbo = 0;
+
+    fp32t *mem = malloc(sizeof(fp32t)
+                          * size * 5);
+
+    e->arr = (fComplex *) mem;
+    e->wn_buf = mem + size * 2;
+    e->ol_buf = mem + size * 3;
+    e->win_fn = mem + size * 4;
+
+    for (int i = 0; i < size; ++i)
+        e->win_fn[i] = 1.0 - cosf(
+           M_PI * 2 * i / (size - 1));
+
+    e->w_step = w_step, e->pfft = fft;
+    e->au_amp = (fp32t) w_step / size;
+}
+
+void stftFree(STFT_Trans *e)
+{
+    free(e->arr), e->arr = NULL;
+}
+
+void stftZero(STFT_Trans *e)
+{
+    int sz = e->pfft->fftLen;
+    e->pbw = 0, e->pbo = 0;
+
+    for (int i = 0; i < sz; ++i)
+    {
+        e->wn_buf[i] = 0.;
+        e->ol_buf[i] = 0.;
+        e->arr[i] = fCPLX(0, 0);
+    }
+}
+
+void stftExec(STFT_Trans *e, fp32t *U,
+          trans_func_t tfunc, void *td)
+{
+    int fft_size = e->pfft->fftLen;
+    int fftsize2 = fft_size / 2;
+    int pmask = fft_size - 1;
+    int step_len = e->w_step;
+    fp32t *wn_buf = e->wn_buf;
+    fp32t *ol_buf = e->ol_buf;
+    fp32t a_amp = e->au_amp;
+
+    for (int i = 0; i < step_len; ++i)
+    {
+        wn_buf[e->pbw] = U[i];
+        e->pbw = (e->pbw + 1) & pmask;
+    }
+
+    for (int i = 0; i < fft_size; ++i)
+    {
+        int pb = (e->pbw + i) & pmask;
+
+        e->arr[i] = fCPLX(wn_buf[pb]
+                   * e->win_fn[i], 0);
+    }
+
+    fftExec(e->pfft, e->arr, 0);
+    tfunc(e->arr, fftsize2, td);
+
+    for (int i = 1; i < fftsize2; ++i)
+    {
+        e->arr[fft_size - i]
+                 = fcpConj(e->arr[i]);
+    }
+
+    fftExec(e->pfft, e->arr, 1);
+
+    for (int i = 0; i < fft_size; ++i)
+    {
+        int pb = (e->pbo + i) & pmask;
+
+        ol_buf[pb] += e->win_fn[i]
+                       * e->arr[i].re;
+    }
+
+    for (int i = 0; i < step_len; ++i)
+    {
+        U[i] = ol_buf[e->pbo] * a_amp;
+
+        ol_buf[e->pbo] = 0.;
+        e->pbo = (e->pbo + 1) & pmask;
+    }
+}
+
+
+
 /* ========== [ STFT 移调机 ] ========== */
 
 typedef struct {
   int step;       /* 单次处理点数 */
   int sampr;      /* 源音频采样率 */
-  int fifo_cnt;   /* 队列缓冲点数 */
-  FastDFT *pfft;
-  fComplex *arr;  /* 变换值存储区 */
-  fp32t *rd_buf;  /* 输入值缓冲区 */
-  fp32t *wr_buf;  /* 输出值缓冲区 */
-  fp32t *win_fn;  /* 窗函数值列表 */
+  int fifo_cnt;   /* 缓冲区计数器 */
+  void *tu_func;  /* 频比计算函数 */
+  void *tu_data;  /* 频比用户数据 */
+  STFT_Trans ft;
   fp32t *pcache;  /* 相位值暂存区 */
   fp32t *pcount;  /* 相位值累加区 */
   fp32t *m_freq;  /* 频率点测量值 */
@@ -188,91 +298,52 @@ static fp32t phase_mod(fp32t ph)
         return ph - M_PI * (np - (np & 1));
 }
 
-static void au_fifo_roL(fp32t *aufifo,
-      fp32t *audio_samp, int fL, int N)
-{
-    fp32t *fifo_prv_sp = aufifo + N;
-
-    for (int i = N; i < fL; ++i)
-        *aufifo++ = *fifo_prv_sp++; 
-
-    if (!audio_samp)
-        while (aufifo != fifo_prv_sp)
-            *aufifo++ = 0.0;
-    else
-        while (aufifo != fifo_prv_sp)
-            *aufifo++ = *audio_samp++;
-}
-
 void tunrInit(STFT_Tuner *e,
-    FastDFT *fft, int stepL, int sampR)
+      FastDFT *fft, int stepL, int sampR)
 {
-    int size = fft->fftLen;
+    int fsize = fft->fftLen / 2 + 1;
 
-    fp32t  *m = malloc(sizeof(fp32t)
-                    * (size * 7 + 6));
+    fp32t *mem = malloc(
+           sizeof(fp32t) * fsize * 6);
 
-    e->win_fn = malloc(sizeof(fp32t)
-                       * fft->fftLen);
-
-    e->rd_buf = m + size * 2;
-    e->wr_buf = m + size * 3;
-    e->pcache = m + size * 4;
-
-    for (int i = 0; i < size; ++i)
-        e->win_fn[i] = 1.0 - cosf(
-           M_PI * 2 * i / (size - 1));
-
+    e->pcache = mem + fsize * 0;
+    e->pcount = mem + fsize * 1;
+    e->m_freq = mem + fsize * 2;
+    e->m_magn = mem + fsize * 3;
+    e->s_freq = mem + fsize * 4;
+    e->s_magn = mem + fsize * 5;
+    stftInit(&e->ft, fft, stepL);
     e->step = stepL, e->sampr = sampR;
-    e->arr = (void *)m, e->pfft = fft;
-    e->pcount = m + size *  9 / 2 + 1;
-    e->m_freq = m + size * 10 / 2 + 2;
-    e->m_magn = m + size * 11 / 2 + 3;
-    e->s_freq = m + size * 12 / 2 + 4;
-    e->s_magn = m + size * 13 / 2 + 5;
 }
 
 void tunrFree(STFT_Tuner *e)
 {
-    free (e->arr), free(e->win_fn);
+    stftFree(&e->ft), free(e->pcache);
 }
 
 void tunrZero(STFT_Tuner *e)
 {
-    int sz = e->pfft->fftLen*7 + 6;
-    fp32t *memptr = (void *)e->arr;
-    e->fifo_cnt = 0;
+    int size = e->ft.pfft->fftLen / 2;
+    stftZero(&e->ft);
 
-    for (int i = 0; i < sz; i += 2)
-        memptr[i] = memptr[i + 1] = 0;
+    for (int i = 0; i <= size; ++i)
+    {
+        e->pcache[i] = e->pcount[i] = 0;
+        e->m_freq[i] = e->m_magn[i] = 0;
+        e->s_freq[i] = e->s_magn[i] = 0;
+    }
 }
 
-char tunrExec(STFT_Tuner *e, fp32t *audio,
-   fp32t (*tuner)(STFT_Tuner *o, void *u),
-         fp32t *audioT, void *tune_usr_data)
+static void _tunr_trans_func(fComplex *arr,
+                       int fsize, void *usr)
 {
-    int fftsize = e->pfft->fftLen;
-    int size2 = fftsize / 2;
-    fComplex *arr  = e->arr;
-    fp32t *rd_buf = e->rd_buf;
-    fp32t *wr_buf = e->wr_buf;
-    fp32t *win_fn = e->win_fn;
+    STFT_Tuner *e = usr;
+    fp32t freq_per_b, ph_step;
+    int fftsize = e->ft.pfft->fftLen;
 
-    au_fifo_roL(e->rd_buf, audio,
-                         fftsize, e->step);
+    fp32t (*tuner_fn)(STFT_Tuner *o,
+                   void *usr) = e->tu_func;
 
-    if (!audio)
-    {
-        if (e->fifo_cnt < 1) { return 0; }
-    }
-    else
-    {
-        if ((e->fifo_cnt += e->step)
-                  < fftsize) { return 0; }
-    }
-
-    fp32t freq_per_b, ph_step, audios_amp;
-    audios_amp = (fp32t)e->step  / fftsize;
     freq_per_b = (fp32t)e->sampr / fftsize;
     ph_step = M_PI * 2 * e->step / fftsize;
 
@@ -281,15 +352,7 @@ char tunrExec(STFT_Tuner *e, fp32t *audio,
     fp32t *syn_freq = e->s_freq;
     fp32t *syn_magn = e->s_magn;
 
-    for (int i = 0; i < fftsize; ++i)
-    {
-        arr[i].re = rd_buf[i] * win_fn[i];
-        arr[i].im = 0;
-    }
-
-    fftExec(e->pfft, arr, 0);
-
-    for (int i = 0; i <= size2; ++i)
+    for (int i = 0; i <= fsize; ++i)
     {
         fp32t pha, u;
         fcpCvt(arr[i], mea_magn + i, &pha);
@@ -302,18 +365,18 @@ char tunrExec(STFT_Tuner *e, fp32t *audio,
         mea_freq[i] = (i + u) * freq_per_b;
     }
 
-    fp32t TR = tuner(e, tune_usr_data);
+    fp32t TR = tuner_fn(e, e->tu_data);
 
-    for (int i = 0, p; i <= size2; ++i)
+    for (int i = 0, p; i <= fsize; ++i)
     {
-        if ((p = i * TR + .5) <= size2)
+        if ((p = i * TR + .5) <= fsize)
         {
             syn_magn[p] += mea_magn[i];
             syn_freq[p] = mea_freq[i] * TR;
         }
     }
 
-    for (int i = 0; i <= size2; ++i)
+    for (int i = 0; i <= fsize; ++i)
     {
         fp32t u = syn_freq[i]
                     / freq_per_b * ph_step;
@@ -323,22 +386,41 @@ char tunrExec(STFT_Tuner *e, fp32t *audio,
 
         arr[i] = fcpCvt2Cp(syn_magn[i], u);
     }
+}
 
-    for (int i = 1; i < size2; ++i)
-        arr[fftsize - i] = fcpConj(arr[i]);
+char tunrExec(STFT_Tuner *e, fp32t *audio,
+   fp32t (*tuner)(STFT_Tuner *o, void *u),
+         fp32t *audioT, void *tune_usr_data)
+{
+    int fftsize = e->ft.pfft->fftLen;
+    int stft_step = e->step;
 
-    fftExec(e->pfft, arr, 1);
+    e->tu_func = tuner;
+    e->tu_data = tune_usr_data;
 
-    au_fifo_roL(e->wr_buf, NULL,
-                         fftsize, e->step);
+    if (!audio)
+    {
+        if (e->fifo_cnt < 1) { return 0; }
 
-    for (int i = 0; i < fftsize; ++i)
-        wr_buf[i] += arr[i].re * win_fn[i];
+        for (int i = 0; i < stft_step; ++i)
+            audioT[i] = 0;
 
-    for (int i = 0; i < e->step; ++i)
-        audioT[i] = wr_buf[i] * audios_amp;
+        stftExec(&e->ft, audioT,
+                      _tunr_trans_func, e);
+    }
+    else
+    {
+        for (int i = 0; i < stft_step; ++i)
+            audioT[i] = audio[i];
 
-    return (e->fifo_cnt -= e->step, 1);
+        stftExec(&e->ft, audioT,
+                      _tunr_trans_func, e);
+
+        if ((e->fifo_cnt += stft_step)
+                  < fftsize) { return 0; }
+    }
+
+    return (e->fifo_cnt -= stft_step, 1);
 }
 
 
@@ -423,25 +505,25 @@ static fp32t tfn(STFT_Tuner *o, void *td)
 
 
 
-#define FFT_LEN 1024
+#define FFT_LEN 2048
 #define FFT_STP 128
 
 
 int main()
 {
-    FILE *au_rd = popen("ffmpeg -v error -i OaO.flac -ac 2 -ar 48000 -f f32le -", "rb");
+    FILE *au_rd = popen("ffmpeg -v error -i bgm.mp3 -ac 2 -ar 48000 -f f32le -", "rb");
     FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 48000 -i - out.flac", "wb");
 
     FastDFT FFT;
     STFT_Tuner2 Tuner;
     fftInit(&FFT, FFT_LEN);
-    tunr2Init(&Tuner, &FFT, FFT_STP, 96000);
+    tunr2Init(&Tuner, &FFT, FFT_STP, 48000);
     tunr2Zero(&Tuner);
 
     static fp32t aud[FFT_STP][2];
     char run = 1;
 
-    fp32t tr = powf(2, 2.0 / 12);
+    fp32t tr = powf(2, 4.0 / 12);
 
     while (run)
     {
