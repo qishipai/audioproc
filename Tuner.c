@@ -185,11 +185,6 @@ void stftInit(STFT_Trans *e,
     e->au_amp = (fp32t) w_step / size;
 }
 
-void stftFree(STFT_Trans *e)
-{
-    free(e->arr), e->arr = NULL;
-}
-
 void stftZero(STFT_Trans *e)
 {
     int sz = e->pfft->fftLen;
@@ -199,8 +194,14 @@ void stftZero(STFT_Trans *e)
     {
         e->wn_buf[i] = 0.;
         e->ol_buf[i] = 0.;
-        e->arr[i] = fCPLX(0, 0);
+        e->arr[i].re = 0.;
+        e->arr[i].im = 0.;
     }
+}
+
+void stftFree(STFT_Trans *e)
+{
+    free(e->arr), e->arr = NULL;
 }
 
 void stftExec(STFT_Trans *e, fp32t *U,
@@ -298,42 +299,6 @@ static fp32t phase_mod(fp32t ph)
         return ph - M_PI * (np - (np & 1));
 }
 
-void tunrInit(STFT_Tuner *e,
-      FastDFT *fft, int stepL, int sampR)
-{
-    int fsize = fft->fftLen / 2 + 1;
-
-    fp32t *mem = malloc(
-           sizeof(fp32t) * fsize * 6);
-
-    e->pcache = mem + fsize * 0;
-    e->pcount = mem + fsize * 1;
-    e->m_freq = mem + fsize * 2;
-    e->m_magn = mem + fsize * 3;
-    e->s_freq = mem + fsize * 4;
-    e->s_magn = mem + fsize * 5;
-    stftInit(&e->ft, fft, stepL);
-    e->step = stepL, e->sampr = sampR;
-}
-
-void tunrFree(STFT_Tuner *e)
-{
-    stftFree(&e->ft), free(e->pcache);
-}
-
-void tunrZero(STFT_Tuner *e)
-{
-    int size = e->ft.pfft->fftLen / 2;
-    stftZero(&e->ft);
-
-    for (int i = 0; i <= size; ++i)
-    {
-        e->pcache[i] = e->pcount[i] = 0;
-        e->m_freq[i] = e->m_magn[i] = 0;
-        e->s_freq[i] = e->s_magn[i] = 0;
-    }
-}
-
 static void _tunr_trans_func(fComplex *arr,
                        int fsize, void *usr)
 {
@@ -388,12 +353,48 @@ static void _tunr_trans_func(fComplex *arr,
     }
 }
 
+void tunrInit(STFT_Tuner *e,
+       FastDFT *fft, int stepL, int sampR)
+{
+    int fsize = fft->fftLen / 2 + 1;
+
+    fp32t *mem = malloc(
+           sizeof(fp32t) * fsize * 6);
+
+    e->pcache = mem + fsize * 0;
+    e->pcount = mem + fsize * 1;
+    e->m_freq = mem + fsize * 2;
+    e->m_magn = mem + fsize * 3;
+    e->s_freq = mem + fsize * 4;
+    e->s_magn = mem + fsize * 5;
+    stftInit(&e->ft, fft, stepL);
+    e->step = stepL, e->sampr = sampR;
+}
+
+void tunrZero(STFT_Tuner *e)
+{
+    int size = e->ft.pfft->fftLen / 2;
+    stftZero(&e->ft);
+
+    for (int i = 0; i <= size; ++i)
+    {
+        e->pcache[i] = e->pcount[i] = 0.;
+        e->m_freq[i] = e->m_magn[i] = 0.;
+        e->s_freq[i] = e->s_magn[i] = 0.;
+    }
+}
+
+void tunrFree(STFT_Tuner *e)
+{
+    stftFree(&e->ft), free(e->pcache);
+}
+
 char tunrExec(STFT_Tuner *e, fp32t *audio,
    fp32t (*tuner)(STFT_Tuner *o, void *u),
          fp32t *audioT, void *tune_usr_data)
 {
     int fftsize = e->ft.pfft->fftLen;
-    int stft_step = e->step;
+    int sft_step = e->step;
 
     e->tu_func = tuner;
     e->tu_data = tune_usr_data;
@@ -402,25 +403,25 @@ char tunrExec(STFT_Tuner *e, fp32t *audio,
     {
         if (e->fifo_cnt < 1) { return 0; }
 
-        for (int i = 0; i < stft_step; ++i)
-            audioT[i] = 0;
+        for (int i = 0; i < sft_step; ++i)
+            audioT[i] = 0.;
 
         stftExec(&e->ft, audioT,
-                      _tunr_trans_func, e);
+                     _tunr_trans_func, e);
     }
     else
     {
-        for (int i = 0; i < stft_step; ++i)
+        for (int i = 0; i < sft_step; ++i)
             audioT[i] = audio[i];
 
         stftExec(&e->ft, audioT,
-                      _tunr_trans_func, e);
+                     _tunr_trans_func, e);
 
-        if ((e->fifo_cnt += stft_step)
+        if ((e->fifo_cnt += sft_step)
                   < fftsize) { return 0; }
     }
 
-    return (e->fifo_cnt -= stft_step, 1);
+    return (e->fifo_cnt -= sft_step, 1);
 }
 
 
@@ -442,15 +443,15 @@ void tunr2Init(STFT_Tuner2 *e,
     tunrInit(&e->R, fft, step, samprate);
 }
 
+void tunr2Zero(STFT_Tuner2 *tu2)
+{
+    tunrZero(&tu2->L), tunrZero(&tu2->R);
+}
+
 void tunr2Free(STFT_Tuner2 *tu2)
 {
     free(tu2->sL), free(tu2->sR);
     tunrFree(&tu2->L), tunrFree(&tu2->R);
-}
-
-void tunr2Zero(STFT_Tuner2 *tu2)
-{
-    tunrZero(&tu2->L), tunrZero(&tu2->R);
 }
 
 void arr2chn(fp32t const (*au)[2],
@@ -500,7 +501,7 @@ char tunr2Exec(STFT_Tuner2 *e, fp32t (*S)[2],
 
 static fp32t tfn(STFT_Tuner *o, void *td)
 {
-    return *(fp32t*)td;
+    return *(fp32t *)td;
 }
 
 
@@ -511,19 +512,20 @@ static fp32t tfn(STFT_Tuner *o, void *td)
 
 int main()
 {
-    FILE *au_rd = popen("ffmpeg -v error -i bgm.mp3 -ac 2 -ar 48000 -f f32le -", "rb");
-    FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 48000 -i - out.flac", "wb");
+    FILE *au_rd = popen("ffmpeg -v error -i \"March of CFT.wav\" -ac 2 -ar 96000 -f f32le -", "rb");
+    FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 96000 -i - -ar 44100 -ac 1 out.wav", "wb");
 
     FastDFT FFT;
     STFT_Tuner2 Tuner;
     fftInit(&FFT, FFT_LEN);
-    tunr2Init(&Tuner, &FFT, FFT_STP, 48000);
+    tunr2Init(&Tuner, &FFT, FFT_STP, 96000);
     tunr2Zero(&Tuner);
 
     static fp32t aud[FFT_STP][2];
+    static fp32t tun[FFT_STP][2];
     char run = 1;
 
-    fp32t tr = powf(2, 4.0 / 12);
+    fp32t tr = powf(2, 1.0 / 12);
 
     while (run)
     {
@@ -533,10 +535,13 @@ int main()
         if (fread(aud, 8*FFT_STP, 1, au_rd) == 1)
             run |= 1, sp = aud;
 
-        if (tunr2Exec(&Tuner, sp, tfn, aud, &tr))
+        if (tunr2Exec(&Tuner, sp, tfn, tun, &tr))
         {
             for (int i = 0; i < FFT_STP; ++i)
-                aud[i][0] *= 0.9, aud[i][1] *= 0.9;
+            {
+                aud[i][0] = tun[i][0] * 2.1;
+                aud[i][1] = tun[i][1] * 2.1;
+            }
 
             run |= 1;
             fwrite(aud, 8 * FFT_STP, 1, au_wr);
