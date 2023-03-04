@@ -167,7 +167,6 @@ void stftInit(STFT_Trans *e,
               FastDFT *fft, int w_step)
 {
     int size = fft->fftLen;
-    e->pbw = 0, e->pbo = 0;
 
     fp32t *mem = malloc(sizeof(fp32t)
                           * size * 5);
@@ -194,8 +193,6 @@ void stftZero(STFT_Trans *e)
     {
         e->wn_buf[i] = 0.;
         e->ol_buf[i] = 0.;
-        e->arr[i].re = 0.;
-        e->arr[i].im = 0.;
     }
 }
 
@@ -354,12 +351,12 @@ static void _tunr_trans_func(fComplex *arr,
 }
 
 void tunrInit(STFT_Tuner *e,
-       FastDFT *fft, int stepL, int sampR)
+     FastDFT *fft, int stepL, int sampR)
 {
     int fsize = fft->fftLen / 2 + 1;
 
-    fp32t *mem = malloc(
-           sizeof(fp32t) * fsize * 6);
+    fp32t *mem = malloc(sizeof(fp32t)
+                         * fsize * 6);
 
     e->pcache = mem + fsize * 0;
     e->pcount = mem + fsize * 1;
@@ -374,14 +371,14 @@ void tunrInit(STFT_Tuner *e,
 void tunrZero(STFT_Tuner *e)
 {
     int size = e->ft.pfft->fftLen / 2;
-    stftZero(&e->ft);
 
     for (int i = 0; i <= size; ++i)
     {
-        e->pcache[i] = e->pcount[i] = 0.;
-        e->m_freq[i] = e->m_magn[i] = 0.;
-        e->s_freq[i] = e->s_magn[i] = 0.;
+        e->pcache[i] = 0.;
+        e->pcount[i] = 0.;
     }
+
+    e->fifo_cnt = 0, stftZero(&e->ft);
 }
 
 void tunrFree(STFT_Tuner *e)
@@ -512,8 +509,8 @@ static fp32t tfn(STFT_Tuner *o, void *td)
 
 int main()
 {
-    FILE *au_rd = popen("ffmpeg -v error -i \"March of CFT.wav\" -ac 2 -ar 96000 -f f32le -", "rb");
-    FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 96000 -i - -ar 44100 -ac 1 out.wav", "wb");
+    FILE *au_rd = popen("ffmpeg -v error -i StarSky.aac -ac 2 -ar 96000 -f f32le -", "rb");
+    FILE *au_wr = popen("ffmpeg -y -f f32le -ac 2 -ar 96000 -i - tune.flac", "wb");
 
     FastDFT FFT;
     STFT_Tuner2 Tuner;
@@ -525,7 +522,7 @@ int main()
     static fp32t tun[FFT_STP][2];
     char run = 1;
 
-    fp32t tr = powf(2, 1.0 / 12);
+    fp32t tr = powf(2, 0.5 / 12);
 
     while (run)
     {
@@ -539,8 +536,8 @@ int main()
         {
             for (int i = 0; i < FFT_STP; ++i)
             {
-                aud[i][0] = tun[i][0] * 2.1;
-                aud[i][1] = tun[i][1] * 2.1;
+                aud[i][0] = tun[i][0] * 0.9;
+                aud[i][1] = tun[i][1] * 0.9;
             }
 
             run |= 1;
