@@ -30,8 +30,8 @@ void fftInit(FastDFT *cx, int N)
     }
 
     s[0][0] = 0;
-    N /= 2, cx->ur0 = u + N;
-    unit = M_PI/N * _Complex_I;
+    N >>= 1, cx->ur0 = u + N;
+    unit = M_PI*_Complex_I / N;
 
     for (i = 0; i < N; ++i)
     {
