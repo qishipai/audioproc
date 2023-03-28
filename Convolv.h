@@ -1,4 +1,4 @@
-/* ====== [ 卷积滤波器 ] ====== */
+/* ===== [ 卷积滤波器 ] ===== */
 
 #ifndef __Convolv_H__
 #define __Convolv_H__
@@ -15,7 +15,7 @@ typedef struct {
 
 /* 卷积滤波器 : 创建 */
 void convInit(Convolv *cx,
-                  FastDFT *pfft);
+                 FastDFT *pfft);
 
 /* 卷积滤波器 : 重置 */
 void convZero(Convolv *cx);
@@ -25,10 +25,10 @@ void convFree(Convolv *cx);
 
 /* 卷积滤波器 : 设置IR */
 void convSetIR(Convolv *cx,
-                  mfloat *imprs);
+                 mfloat *imprs);
 
 /* 卷积滤波器 : 执行 */
 void convExec(Convolv *cx,
-                  mfloat *audio);
+                 mfloat *audio);
 
-#endif  /* ={ 云中龙++ 2023 }= */
+#endif  /* { 云中龙++ 2023 } */

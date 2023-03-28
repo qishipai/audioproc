@@ -7,84 +7,88 @@
 
 /* 卷积滤波器 : 创建 */
 void convInit(Convolv *cx,
-                     FastDFT *pfft)
+                 FastDFT *pfft)
 {
-    int cnlen = pfft->fftLen / 2;
+    int N = pfft->fftLen / 2;
 
-    mfloat *m = malloc(cnlen * 8
-                * sizeof(mfloat));
+    mfloat *m = malloc(N * 8
+                * sizeof(*m));
 
-    cx->convLen = cnlen;
-    cx->pfft = pfft, cx->obuf = m;
-    cx->fir = (void *)(m + cnlen);
-    cx->arr = cx->fir + cnlen * 3;
+    cx->obuf = m;
+    cx->pfft = pfft;
+    cx->convLen = N;
+    cx->fir = (void *)(m + N);
+    cx->arr = cx->fir + N * 3;
 }
 
 /* 卷积滤波器 : 重置 */
 void convZero(Convolv *cx)
 {
-    int clen = cx->convLen;
+    int i, clen = cx->convLen;
 
-    for (int i = 0; i < clen; ++i)
+    for (i = 0; i < clen; ++i)
         cx->obuf[i] = .0;
 }
 
 /* 卷积滤波器 : 销毁 */
 void convFree(Convolv *cx)
 {
-    free(cx->obuf), cx->convLen = 0;
+    free(cx->obuf);
 }
 
 /* 卷积滤波器 : 设置IR */
 void convSetIR(Convolv *cx,
-                     mfloat *imprs)
+                 mfloat *imprs)
 {
-    int clen = cx->convLen;
+    int i, clen = cx->convLen;
+    mComplex *fir = cx->fir;
 
-    for (int i = 0; i < clen; ++i)
+    for (i = 0; i < clen; ++i)
     {
-        cx->fir[i] = imprs[i];
-        cx->fir[i + clen] = 0;
+        fir[i] = imprs[i];
+        fir[i + clen] = 0;
     }
 
-    fftExec(cx->pfft, cx->fir, 0);
+    fftExec(cx->pfft, fir, 0);
 }
 
 /* 卷积滤波器 : 执行 */
 void convExec(Convolv *cx,
-                     mfloat *audio)
+                 mfloat *audio)
 {
-    int fftlen = cx->pfft->fftLen;
+    int i, clen = cx->convLen;
+    int fn = cx->pfft->fftLen;
+    mComplex *fir = cx->fir;
+    mComplex *arr = cx->arr;
+
+    for (i = 0; i < clen; ++i)
+    {
+        arr[i] = audio[i];
+        arr[i + clen] = 0;
+    }
+
+    fftExec(cx->pfft, arr, 0);
+
+    arr[0x00] *= fir[0x00];
+    arr[clen] *= fir[clen];
+
+    for (i = 1; i < clen; ++i)
+    {
+        arr[i] *= fir[i];
+
+        arr[fn - i]
+              = mconj(arr[i]);
+    }
+
+    fftExec(cx->pfft, arr, 1);
+
     mfloat *obuf = cx->obuf;
-    int clen = cx->convLen;
 
-    for (int i = 0; i < clen; ++i)
-    {
-        cx->arr[i] = audio[i];
-        cx->arr[i + clen] = 0;
-    }
-
-    fftExec(cx->pfft, cx->arr, 0);
-
-    cx->arr[0] *= cx->fir[0];
-
-    for (int i = 1; i < clen; ++i)
-    {
-        cx->arr[i] *= cx->fir[i];
-
-        cx->arr[fftlen - i]
-              = mconj(cx->arr[i]);
-    }
-
-    cx->arr[clen]*=cx->fir[clen];
-
-    fftExec(cx->pfft, cx->arr, 1);
-
-    for (int i = 0; i < clen; ++i)
+    for (i = 0; i < clen; ++i)
     {
         audio[i]
-           = obuf[i] + cx->arr[i];
+             = obuf[i]+arr[i];
 
-        obuf[i] = cx->arr[i+clen];
+        obuf[i] = arr[i+clen];
     }
 }
