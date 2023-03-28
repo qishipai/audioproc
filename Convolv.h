@@ -1,4 +1,4 @@
-/* ===== [ FFT 卷积器 ] ===== */
+/* ====== [ 卷积滤波器 ] ====== */
 
 #ifndef __Convolv_H__
 #define __Convolv_H__
@@ -6,28 +6,29 @@
 #include "FastDFT.h"
 
 typedef struct {
+  int convLen;    /* 卷积长度 */
   mfloat *obuf;   /* 累加缓冲 */
   FastDFT *pfft;
   mComplex *fir;  /* 频域响应 */
   mComplex *arr;  /* 频域存储 */
 } Convolv;
 
-/* FFT 卷积器 : 创建 */
+/* 卷积滤波器 : 创建 */
 void convInit(Convolv *cx,
-                 FastDFT *pfft);
+                  FastDFT *pfft);
 
-/* FFT 卷积器 : 重置 */
+/* 卷积滤波器 : 重置 */
 void convZero(Convolv *cx);
 
-/* FFT 卷积器 : 销毁 */
+/* 卷积滤波器 : 销毁 */
 void convFree(Convolv *cx);
 
-/* FFT 卷积器 : 设置IR */
+/* 卷积滤波器 : 设置IR */
 void convSetIR(Convolv *cx,
-                 mfloat *imprs);
+                  mfloat *imprs);
 
-/* FFT 卷积器 : 执行 */
+/* 卷积滤波器 : 执行 */
 void convExec(Convolv *cx,
-                 mfloat *audio);
+                  mfloat *audio);
 
-#endif  /* { 云中龙++ 2023 } */
+#endif  /* ={ 云中龙++ 2023 }= */
