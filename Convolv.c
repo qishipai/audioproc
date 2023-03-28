@@ -18,7 +18,7 @@ void convInit(Convolv *cx,
     cx->pfft = pfft;
     cx->convLen = N;
     cx->fir = (void *)(m + N);
-    cx->arr = cx->fir + N * 3;
+    cx->arr = cx->fir + N + 1;
 }
 
 /* 卷积滤波器 : 重置 */
@@ -87,7 +87,7 @@ void convExec(Convolv *cx,
     for (i = 0; i < clen; ++i)
     {
         audio[i]
-             = obuf[i]+arr[i];
+           = obuf[i] + arr[i];
 
         obuf[i] = arr[i+clen];
     }
