@@ -6,7 +6,7 @@
 
 
 /* 卷积滤波器 : 创建 */
-void convInit(Convolv *cx,
+void cnvInit(Convolv *cx,
                  FastDFT *pfft)
 {
     int N = pfft->fftLen / 2;
@@ -22,7 +22,7 @@ void convInit(Convolv *cx,
 }
 
 /* 卷积滤波器 : 重置 */
-void convZero(Convolv *cx)
+void cnvZero(Convolv *cx)
 {
     int i, clen = cx->convLen;
 
@@ -31,13 +31,13 @@ void convZero(Convolv *cx)
 }
 
 /* 卷积滤波器 : 销毁 */
-void convFree(Convolv *cx)
+void cnvFree(Convolv *cx)
 {
     free(cx->obuf);
 }
 
 /* 卷积滤波器 : 设置IR */
-void convSetIR(Convolv *cx,
+void cnvSetIR(Convolv *cx,
                  mfloat *imprs)
 {
     int i, clen = cx->convLen;
@@ -53,7 +53,7 @@ void convSetIR(Convolv *cx,
 }
 
 /* 卷积滤波器 : 执行 */
-void convExec(Convolv *cx,
+void cnvExec(Convolv *cx,
                  mfloat *audio)
 {
     int i, clen = cx->convLen;

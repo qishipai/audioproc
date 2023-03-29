@@ -14,21 +14,21 @@ typedef struct {
 } Convolv;
 
 /* 卷积滤波器 : 创建 */
-void convInit(Convolv *cx,
+void cnvInit(Convolv *cx,
                  FastDFT *pfft);
 
 /* 卷积滤波器 : 重置 */
-void convZero(Convolv *cx);
+void cnvZero(Convolv *cx);
 
 /* 卷积滤波器 : 销毁 */
-void convFree(Convolv *cx);
+void cnvFree(Convolv *cx);
 
 /* 卷积滤波器 : 设置IR */
-void convSetIR(Convolv *cx,
+void cnvSetIR(Convolv *cx,
                  mfloat *imprs);
 
 /* 卷积滤波器 : 执行 */
-void convExec(Convolv *cx,
+void cnvExec(Convolv *cx,
                  mfloat *audio);
 
 #endif  /* { 云中龙++ 2023 } */
