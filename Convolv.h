@@ -15,7 +15,7 @@ typedef struct {
 
 /* 卷积滤波器 : 创建 */
 void cnvInit(Convolv *cx,
-                 FastDFT *pfft);
+                FastDFT *pfft);
 
 /* 卷积滤波器 : 重置 */
 void cnvZero(Convolv *cx);
@@ -25,10 +25,10 @@ void cnvFree(Convolv *cx);
 
 /* 卷积滤波器 : 设置IR */
 void cnvSetIR(Convolv *cx,
-                 mfloat *imprs);
+                mfloat *imprs);
 
 /* 卷积滤波器 : 执行 */
 void cnvExec(Convolv *cx,
-                 mfloat *audio);
+                mfloat *audio);
 
 #endif  /* { 云中龙++ 2023 } */

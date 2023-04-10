@@ -12,7 +12,7 @@ void cnvInit(Convolv *cx,
     int N = pfft->fftLen / 2;
 
     mfloat *m = malloc(N * 8
-                * sizeof(*m));
+            * sizeof(mfloat));
 
     cx->obuf = m;
     cx->pfft = pfft;
@@ -57,7 +57,6 @@ void cnvExec(Convolv *cx,
                  mfloat *audio)
 {
     int i, clen = cx->convLen;
-    int fn = cx->pfft->fftLen;
     mComplex *fir = cx->fir;
     mComplex *arr = cx->arr;
 
@@ -71,6 +70,8 @@ void cnvExec(Convolv *cx,
 
     arr[0x00] *= fir[0x00];
     arr[clen] *= fir[clen];
+
+    int fn = cx->pfft->fftLen;
 
     for (i = 1; i < clen; ++i)
     {
